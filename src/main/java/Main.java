@@ -23,7 +23,15 @@ public class Main {
 
             if (command.equals("exit")) {
                 break;
-            } else if (command.equals("echo")) {
+            }
+
+            else if (command.equals("pwd")) {
+
+                String currentWorkingDirectory = System.getProperty("user.dir");
+                System.out.println(currentWorkingDirectory);
+            }
+
+            else if (command.equals("echo")) {
                 StringBuilder message = new StringBuilder();
                 for (int i = 1; i < parts.length; i++) {
                     message.append(parts[i]).append(i == parts.length - 1 ? "" : " ");
@@ -34,7 +42,8 @@ public class Main {
 
                 } else {
                     String target = parts[1];
-                    if (target.equals("exit") || target.equals("echo") || target.equals("type")) {
+                    if (target.equals("exit") || target.equals("echo") || target.equals("type")
+                            || target.equals("pwd")) {
                         System.out.println(target + " is a shell builtin");
                     } else {
                         String path = findExecutableInPath(target);
@@ -46,20 +55,15 @@ public class Main {
                     }
                 }
             } else {
-
                 String fullPath = findExecutableInPath(command);
-
                 if (fullPath != null) {
-
                     ProcessBuilder pb = new ProcessBuilder("sh", "-c", input);
-
                     pb.inheritIO();
                     Process process = pb.start();
                     process.waitFor();
                 } else {
                     System.out.println(input + ": command not found");
                 }
-
             }
         }
     }

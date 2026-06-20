@@ -12,7 +12,18 @@ public class Main {
                 break;
             }
 
-            System.out.println(input + ": command not found");
+            else if (input.startsWith("echo ")) {
+
+                String message = input.substring(5);
+                System.out.println(message);
+            } else if (input.equals("echo")) {
+
+                System.out.println();
+            }
+
+            else {
+                System.out.println(input + ": command not found");
+            }
         }
     }
 }

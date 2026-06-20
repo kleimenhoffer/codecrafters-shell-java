@@ -13,13 +13,17 @@ public class Main {
         while (true) {
             System.out.print("$ ");
             String input = scanner.nextLine();
+
+            if (input.trim().isEmpty()) {
+                continue;
+            }
+
             String[] parts = input.split(" ");
             String command = parts[0];
 
             if (command.equals("exit")) {
                 break;
             } else if (command.equals("echo")) {
-
                 StringBuilder message = new StringBuilder();
                 for (int i = 1; i < parts.length; i++) {
                     message.append(parts[i]).append(i == parts.length - 1 ? "" : " ");
@@ -47,14 +51,9 @@ public class Main {
 
                 if (fullPath != null) {
 
-                    List<String> commandList = new ArrayList<>(Arrays.asList(parts));
-
-                    commandList.set(0, fullPath);
-
-                    ProcessBuilder pb = new ProcessBuilder(commandList);
+                    ProcessBuilder pb = new ProcessBuilder("sh", "-c", input);
 
                     pb.inheritIO();
-
                     Process process = pb.start();
                     process.waitFor();
                 } else {

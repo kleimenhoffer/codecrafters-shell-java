@@ -7,6 +7,10 @@ import java.util.Arrays;
 import java.util.List;
 
 public class Main {
+    // This is our "Virtual Tracker". It keeps track of where the shell "thinks" it
+    // is.
+    private static String currentDirectory = System.getProperty("user.dir");
+
     public static void main(String[] args) throws Exception {
         Scanner scanner = new Scanner(System.in);
 
@@ -24,14 +28,33 @@ public class Main {
             if (command.equals("exit")) {
                 break;
             }
+            // --- NEW LOGIC FOR CD STARTS HERE ---
+            else if (command.equals("cd")) {
+                if (parts.length < 2) {
+                    // If user just types 'cd', we do nothing or could go to home
+                } else {
+                    String newPath = parts[1];
 
-            else if (command.equals("pwd")) {
-
-                String currentWorkingDirectory = System.getProperty("user.dir");
-                System.out.println(currentWorkingDirectory);
+                    // We are only handling Absolute Paths for now (those starting with /)
+                    if (newPath.startsWith("/")) {
+                        File directory = new File(newPath);
+                        if (directory.exists() && directory.isDirectory()) {
+                            // Update our tracker!
+                            currentDirectory = directory.getAbsolutePath();
+                        } else {
+                            System.out.println("cd: " + newPath + ": No such file or directory");
+                        }
+                    } else {
+                        // For this stage, we ignore relative paths like '..' or '.'
+                        System.out.println("cd: " + newPath + ": No such file or directory");
+                    }
+                }
             }
-
-            else if (command.equals("echo")) {
+            // --- NEW LOGIC FOR CD ENDS HERE ---
+            else if (command.equals("pwd")) {
+                // Now we print the tracker variable, NOT the system property
+                System.out.println(currentDirectory);
+            } else if (command.equals("echo")) {
                 StringBuilder message = new StringBuilder();
                 for (int i = 1; i < parts.length; i++) {
                     message.append(parts[i]).append(i == parts.length - 1 ? "" : " ");
@@ -39,11 +62,12 @@ public class Main {
                 System.out.println(message.toString());
             } else if (command.equals("type")) {
                 if (parts.length < 2) {
-
+                    // Do nothing
                 } else {
                     String target = parts[1];
-                    if (target.equals("exit") || target.equals("echo") || target.equals("type")
-                            || target.equals("pwd")) {
+                    // Added 'cd' to the list of builtins
+                    if (target.equals("exit") || target.equals("echo") || target.equals("type") || target.equals("pwd")
+                            || target.equals("cd")) {
                         System.out.println(target + " is a shell builtin");
                     } else {
                         String path = findExecutableInPath(target);
@@ -58,6 +82,10 @@ public class Main {
                 String fullPath = findExecutableInPath(command);
                 if (fullPath != null) {
                     ProcessBuilder pb = new ProcessBuilder("sh", "-c", input);
+
+                    // CRUCIAL: This tells the external program to run inside our virtual folder
+                    pb.directory(new File(currentDirectory));
+
                     pb.inheritIO();
                     Process process = pb.start();
                     process.waitFor();

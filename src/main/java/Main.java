@@ -20,14 +20,12 @@ public class Main {
         }
     }
 
-    // --- REAPING LOGIC: This handles the "Done" messages ---
     private static void reapJobs(ArrayList<Job> jobsList) {
         ArrayList<Job> toRemove = new ArrayList<>();
 
         for (int i = 0; i < jobsList.size(); i++) {
             Job job = jobsList.get(i);
             if (!job.process.isAlive()) {
-                // Calculate marker based on the job's current position in the list
                 char marker = ' ';
                 if (i == jobsList.size() - 1) {
                     marker = '+';
@@ -35,14 +33,12 @@ public class Main {
                     marker = '-';
                 }
 
-                // Format must be exactly: [id]marker Done (padded to 24) command
                 System.out.printf("[%d]%c  %-24s %s%n",
                         job.number, marker, "Done", job.command);
 
                 toRemove.add(job);
             }
         }
-        // Remove completed jobs so they aren't reported again
         jobsList.removeAll(toRemove);
     }
 
@@ -113,7 +109,6 @@ public class Main {
         ArrayList<Job> jobsList = new ArrayList<>();
 
         while (true) {
-            // --- RULE 1: Reap jobs BEFORE printing the prompt ---
             reapJobs(jobsList);
 
             System.out.print("$ ");
@@ -225,9 +220,7 @@ public class Main {
                 }
                 printOutput(sb.toString(), stdoutTarget, appendStdout, currentDirectory);
             } else if (cmd.equals("jobs")) {
-                // --- RULE 2: Reap jobs INSIDE the jobs builtin as well ---
                 reapJobs(jobsList);
-
                 StringBuilder sb = new StringBuilder();
                 for (int i = 0; i < jobsList.size(); i++) {
                     Job job = jobsList.get(i);
@@ -236,7 +229,6 @@ public class Main {
                         marker = '+';
                     else if (i == jobsList.size() - 2)
                         marker = '-';
-
                     if (sb.length() > 0)
                         sb.append("\n");
                     sb.append("[").append(job.number).append("]").append(marker)
@@ -276,14 +268,27 @@ public class Main {
                         ProcessBuilder pb = new ProcessBuilder(parts);
                         pb.directory(currentDirectory.toFile());
                         pb.inheritIO();
+
+                        // --- FIXED REDIRECTION LOGIC ---
                         if (stdoutTarget != null) {
                             File outFile = currentDirectory.resolve(stdoutTarget).normalize().toFile();
-                            pb.redirectOutput(appendStdout ? ProcessBuilder.Redirect.appendTo(outFile) : outFile);
+                            if (appendStdout) {
+                                pb.redirectOutput(ProcessBuilder.Redirect.appendTo(outFile));
+                            } else {
+                                pb.redirectOutput(outFile);
+                            }
                         }
+
                         if (stderrTarget != null) {
                             File errFile = currentDirectory.resolve(stderrTarget).normalize().toFile();
-                            pb.redirectError(appendStderr ? ProcessBuilder.Redirect.appendTo(errFile) : errFile);
+                            if (appendStderr) {
+                                pb.redirectError(ProcessBuilder.Redirect.appendTo(errFile));
+                            } else {
+                                pb.redirectError(errFile);
+                            }
                         }
+                        // --- END OF FIX ---
+
                         Process p = pb.start();
                         if (runInBackground) {
                             System.out.println("[" + jobNumber + "] " + p.pid());

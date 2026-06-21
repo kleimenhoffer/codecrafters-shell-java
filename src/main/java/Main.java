@@ -12,8 +12,9 @@ public class Main {
     record Output(String std, String err) {
     }
 
-    // ADDED "jobs" to this set
     static final Set<String> BUILTINS = Set.of("cd", "echo", "exit", "pwd", "type", "jobs");
+    // --- NEW: Counter for background jobs ---
+    static int jobCounter = 0;
 
     public static void main(String[] args) {
         while (true) {
@@ -54,7 +55,16 @@ public class Main {
                 }
             }
 
-            var output = handle(tokens);
+            // --- NEW: Check for background execution '&' ---
+            boolean isBackground = false;
+            List<String> activeTokens = new ArrayList<>(Arrays.asList(tokens));
+            if (!activeTokens.isEmpty() && activeTokens.get(activeTokens.size() - 1).equals("&")) {
+                isBackground = true;
+                activeTokens.remove(activeTokens.size() - 1);
+            }
+
+            // We pass the activeTokens and the background flag to handle
+            var output = handle(activeTokens.toArray(new String[0]), isBackground, stdout, stderr);
 
             BiConsumer<Optional<Redirect>, String> lambda = (o, str) -> o.ifPresentOrElse(
                     r -> {
@@ -85,7 +95,7 @@ public class Main {
         }
     }
 
-    static Output handle(String[] tokens) {
+    static Output handle(String[] tokens, boolean isBackground, Optional<Redirect> stdout, Optional<Redirect> stderr) {
         try (var outStream = new ByteArrayOutputStream();
                 var errStream = new ByteArrayOutputStream();
                 var out = new PrintStream(outStream);
@@ -145,11 +155,10 @@ public class Main {
                                 () -> err.println(args[1] + ": not found"));
                 }
                 case "jobs" -> {
-                    // We do nothing here for now.
-                    // This ensures the command is recognized but produces no output.
+                    // Empty for now as per previous stage
                 }
                 default -> getFile(args[0]).ifPresentOrElse(
-                        _ -> runProgram(args, out, err),
+                        _ -> runProgram(args, out, err, isBackground, stdout, stderr),
                         () -> err.println(args[0] + ": command not found"));
             }
             out.flush();
@@ -173,12 +182,36 @@ public class Main {
         return Optional.empty();
     }
 
-    static void runProgram(String[] tokens, PrintStream out, PrintStream err) {
+    static void runProgram(String[] tokens, PrintStream out, PrintStream err, boolean isBackground,
+            Optional<Redirect> stdout, Optional<Redirect> stderr) {
         try {
-            var process = Runtime.getRuntime().exec(tokens);
-            process.getInputStream().transferTo(out);
-            process.getErrorStream().transferTo(err);
-            process.waitFor();
+            ProcessBuilder pb = new ProcessBuilder(tokens);
+
+            // Handle redirection
+            if (stdout.isPresent())
+                pb.redirectOutput(new File(stdout.get().path()));
+            else if (!isBackground)
+                pb.redirectOutput(ProcessBuilder.Redirect.PIPE);
+
+            if (stderr.isPresent())
+                pb.redirectError(new File(stderr.get().path()));
+            else if (!isBackground)
+                pb.redirectError(ProcessBuilder.Redirect.PIPE);
+
+            Process process = pb.start();
+
+            if (isBackground) {
+                // --- BACKGROUND LOGIC ---
+                jobCounter++;
+                System.out.println("[" + jobCounter + "] " + process.pid());
+                // We do NOT call process.waitFor(), so the shell continues immediately
+            } else {
+                // --- FOREGROUND LOGIC ---
+                // Read streams and send them to our captured ByteArrays
+                process.getInputStream().transferTo(out);
+                process.getErrorStream().transferTo(err);
+                process.waitFor();
+            }
         } catch (IOException | InterruptedException e) {
             err.println("An I/O error occurred: " + e.getMessage());
         }

@@ -23,24 +23,13 @@ public class Main {
     private static void reapJobs(ArrayList<Job> jobsList) {
         ArrayList<Job> toRemove = new ArrayList<>();
 
-        for (int i = 0; i < jobsList.size(); i++) {
-            Job job = jobsList.get(i);
+        for (Job job : jobsList) {
             if (!job.process.isAlive()) {
-                char marker = ' ';
-                if (i == jobsList.size() - 1) {
-                    marker = '+';
-                } else if (i == jobsList.size() - 2) {
-                    marker = '-';
-                }
-
                 String displayCmd = job.command;
                 if (displayCmd.endsWith("&")) {
                     displayCmd = displayCmd.substring(0, displayCmd.length() - 1).trim();
                 }
-
-                System.out.printf("[%d]%c  %-24s %s%n",
-                        job.number, marker, "Done", displayCmd);
-
+                System.out.printf("[%d]+  %-24s %s%n", job.number, "Done", displayCmd);
                 toRemove.add(job);
             }
         }
@@ -225,14 +214,26 @@ public class Main {
                 }
                 printOutput(sb.toString(), stdoutTarget, appendStdout, currentDirectory);
             } else if (cmd.equals("jobs")) {
-                reapJobs(jobsList);
+                // Separate done and running jobs
+                ArrayList<Job> doneJobs = new ArrayList<>();
+                ArrayList<Job> runningJobs = new ArrayList<>();
+                for (Job job : jobsList) {
+                    if (!job.process.isAlive()) {
+                        doneJobs.add(job);
+                    } else {
+                        runningJobs.add(job);
+                    }
+                }
+                jobsList.removeAll(doneJobs);
+
+                // Print running jobs first with correct +/- markers
                 StringBuilder sb = new StringBuilder();
-                for (int i = 0; i < jobsList.size(); i++) {
-                    Job job = jobsList.get(i);
+                for (int i = 0; i < runningJobs.size(); i++) {
+                    Job job = runningJobs.get(i);
                     char marker = ' ';
-                    if (i == jobsList.size() - 1)
+                    if (i == runningJobs.size() - 1)
                         marker = '+';
-                    else if (i == jobsList.size() - 2)
+                    else if (i == runningJobs.size() - 2)
                         marker = '-';
                     if (sb.length() > 0)
                         sb.append("\n");
@@ -241,6 +242,15 @@ public class Main {
                 }
                 if (sb.length() > 0) {
                     printOutput(sb.toString(), stdoutTarget, appendStdout, currentDirectory);
+                }
+
+                // Print done jobs after
+                for (Job job : doneJobs) {
+                    String displayCmd = job.command;
+                    if (displayCmd.endsWith("&")) {
+                        displayCmd = displayCmd.substring(0, displayCmd.length() - 1).trim();
+                    }
+                    System.out.printf("[%d]+  %-24s %s%n", job.number, "Done", displayCmd);
                 }
             } else if (cmd.equals("type")) {
                 if (parts.size() < 2)
@@ -274,7 +284,6 @@ public class Main {
                         pb.directory(currentDirectory.toFile());
                         pb.inheritIO();
 
-                        // FIX: use if/else instead of ternary to avoid mixed types
                         if (stdoutTarget != null) {
                             File outFile = currentDirectory.resolve(stdoutTarget).normalize().toFile();
                             if (appendStdout) {

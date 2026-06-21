@@ -129,14 +129,25 @@ public class Main {
             } else {
                 String execPath = findInPath(command);
                 if (execPath != null) {
-                    ProcessBuilder pb = new ProcessBuilder(inputs);
-                    if (outputFile != null) {
-                        pb.redirectOutput(outputFile);
-                    } else {
-                        pb.inheritIO();
+                    try {
+                        ProcessBuilder pb = new ProcessBuilder(inputs);
+                        if (outputFile != null) {
+                            pb.redirectOutput(outputFile);
+                        } else {
+                            pb.inheritIO();
+                        }
+                        Process p = pb.start();
+                        p.waitFor();
+                    } catch (IOException e) {
+                        // This is the safety net!
+                        // If redirection fails because a folder is missing,
+                        // we print the error and KEEP the shell running.
+                        if (outputFile != null) {
+                            System.out.println("bash: " + outputFile.getPath() + ": No such file or directory");
+                        } else {
+                            System.out.println("Error executing command: " + e.getMessage());
+                        }
                     }
-                    Process p = pb.start();
-                    p.waitFor();
                 } else {
                     System.out.println(command + ": command not found");
                 }
@@ -149,12 +160,11 @@ public class Main {
             System.out.println(text);
         } else {
             try {
-
                 PrintStream fileOut = new PrintStream(new FileOutputStream(outputFile));
                 fileOut.println(text);
                 fileOut.close();
             } catch (IOException e) {
-                System.err.println("Error writing to file: " + e.getMessage());
+                System.out.println("bash: " + outputFile.getPath() + ": No such file or directory");
             }
         }
     }

@@ -6,18 +6,17 @@ import java.util.*;
 import java.util.function.BiConsumer;
 
 public class Main {
-    // The record must be inside the class or defined separately
     record Redirect(String path, boolean append) {
     }
 
     record Output(String std, String err) {
     }
 
-    static final Set<String> BUILTINS = Set.of("cd", "echo", "exit", "pwd", "type");
+    // ADDED "jobs" to this set
+    static final Set<String> BUILTINS = Set.of("cd", "echo", "exit", "pwd", "type", "jobs");
 
     public static void main(String[] args) {
         while (true) {
-            // Using readln from java.lang.IO (Java 21+)
             final String input = readln("$ ");
             if (input == null)
                 break;
@@ -144,6 +143,10 @@ public class Main {
                         getFile(args[1]).ifPresentOrElse(
                                 f -> out.println(args[1] + " is " + f.getAbsolutePath()),
                                 () -> err.println(args[1] + ": not found"));
+                }
+                case "jobs" -> {
+                    // We do nothing here for now.
+                    // This ensures the command is recognized but produces no output.
                 }
                 default -> getFile(args[0]).ifPresentOrElse(
                         _ -> runProgram(args, out, err),

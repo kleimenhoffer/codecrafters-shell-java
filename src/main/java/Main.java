@@ -21,24 +21,29 @@ public class Main {
         StringBuilder currentArg = new StringBuilder();
         boolean insideSingleQuote = false;
         boolean insideDoubleQuote = false;
+        boolean isEscaped = false;
 
         for (char c : input.toCharArray()) {
-            if (c == '\'') {
+            if (isEscaped) {
 
+                currentArg.append(c);
+                isEscaped = false;
+            } else if (c == '\\' && !insideSingleQuote) {
+
+                isEscaped = true;
+            } else if (c == '\'') {
                 if (!insideDoubleQuote) {
                     insideSingleQuote = !insideSingleQuote;
                 } else {
                     currentArg.append(c);
                 }
             } else if (c == '\"') {
-
                 if (!insideSingleQuote) {
                     insideDoubleQuote = !insideDoubleQuote;
                 } else {
                     currentArg.append(c);
                 }
             } else if (c == ' ' && !insideSingleQuote && !insideDoubleQuote) {
-
                 if (currentArg.length() > 0) {
                     args.add(currentArg.toString());
                     currentArg = new StringBuilder();

@@ -1,172 +1,217 @@
-import command.Command;
-import command.CommandFactory;
-import command.CommandOutput;
-import command.functions.Exit;
-
-import state.CurrentPath;
-
-import java.io.FileOutputStream;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
+import static java.lang.IO.readln;
+import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.*;
 import java.util.*;
+import java.util.function.BiConsumer;
 
-public class Main {
-    static void main(String[] args) throws Exception {
-        CommandFactory commandFactory = new CommandFactory();
-        boolean run = true;
-        while (run) {
-            System.out.print("$ ");
-            Scanner scanner = new Scanner(System.in);
-            String commandLine = scanner.nextLine();
+// This record helps us remember if we should overwrite (>) or append (>>)
+record Redirect(String path, boolean append) {
+}
 
-            String[] arguments;
+Set<String> BUILTINS = Set.of("cd", "echo", "exit", "pwd", "type");
 
-            boolean inSingleQuotes = false;
-            boolean inDoubleQuotes = false;
+void main() {
+    while (true) {
+        final String input = readln("$ ");
+        if (input == null)
+            break;
+        final String[] tokens = tokenize(input);
+        if (tokens.length == 0)
+            continue;
 
-            boolean isEscaped = false;
-            boolean isEscapedConditionally = false;
-            List<String> argsList = new ArrayList<>();
+        var stdout = Optional.<Redirect>empty();
+        var stderr = Optional.<Redirect>empty();
 
-            StringBuilder currentArg = new StringBuilder();
-
-            for (char current : commandLine.toCharArray()) {
-                if (isEscaped) {
-                    currentArg.append(current);
-                    isEscaped = false;
-                    continue;
+        int i = 1;
+        // We look for redirection operators and store them in the Redirect record
+        while (i < tokens.length) {
+            if (tokens[i].equals("1>") || tokens[i].equals(">")) {
+                if (i + 1 < tokens.length) {
+                    stdout = Optional.of(new Redirect(tokens[++i], false));
                 }
-
-                if (isEscapedConditionally) {
-                    switch (current) {
-                        case '"', '\\':
-                            currentArg.append(current);
-                            break;
-                        default:
-                            currentArg.append('\\').append(current);
-                    }
-                    isEscapedConditionally = false;
-                    continue;
+                i++;
+            } else if (tokens[i].equals("1>>") || tokens[i].equals(">>")) {
+                if (i + 1 < tokens.length) {
+                    stdout = Optional.of(new Redirect(tokens[++i], true));
                 }
-
-                switch (current) {
-                    case '\'':
-                        if (inDoubleQuotes) {
-                            currentArg.append(current);
-                        } else {
-                            inSingleQuotes = !inSingleQuotes;
-                        }
-                        break;
-                    case ' ':
-                        if (inSingleQuotes || inDoubleQuotes) {
-                            currentArg.append(current);
-                        } else if (!currentArg.isEmpty()) {
-                            argsList.add(currentArg.toString());
-                            currentArg = new StringBuilder();
-                        }
-                        break;
-                    case '"':
-                        if (inSingleQuotes) {
-                            currentArg.append(current);
-                        } else {
-                            inDoubleQuotes = !inDoubleQuotes;
-                        }
-                        break;
-                    case '\\':
-                        if (inSingleQuotes) {
-                            currentArg.append(current);
-                        } else if (inDoubleQuotes) {
-                            isEscapedConditionally = true;
-                        } else {
-                            isEscaped = true;
-                        }
-                        break;
-                    default:
-                        currentArg.append(current);
+                i++;
+            } else if (tokens[i].equals("2>")) {
+                if (i + 1 < tokens.length) {
+                    stderr = Optional.of(new Redirect(tokens[++i], false));
                 }
-            }
-
-            argsList.add(currentArg.toString());
-
-            arguments = argsList.toArray(new String[0]);
-
-            String[] execArgs = Arrays.copyOfRange(arguments, 1, arguments.length);
-
-            Optional<Command> command = commandFactory.getCommandByName(arguments[0]);
-
-            OutputStream outStd = System.out;
-            OutputStream outErr = System.err;
-
-            if (argsList.size() > 1) {
-                String secondToLastArg = argsList.get(argsList.size() - 2);
-
-                if (">".equals(secondToLastArg)
-                        || "1>".equals(secondToLastArg)
-                        || ">>".equals(secondToLastArg)
-                        || "1>>".equals(secondToLastArg)) {
-                    Path outputFilePath = Path.of(argsList.getLast());
-
-                    boolean append = ">>".equals(secondToLastArg) || "1>>".equals(secondToLastArg);
-
-                    if (!outputFilePath.isAbsolute()) {
-                        outputFilePath = Path.of(
-                                CurrentPath.INSTANCE.getPath().toString(),
-                                argsList.getLast());
-                    }
-
-                    if (!Files.exists(outputFilePath)) {
-                        Files.createFile(outputFilePath);
-                    }
-
-                    outStd = new FileOutputStream(outputFilePath.toFile(), append);
-
-                    execArgs = Arrays.copyOfRange(arguments, 1, arguments.length - 2);
-                }
-
-                if ("2>".equals(secondToLastArg)) {
-                    Path outputFilePath = Path.of(argsList.getLast());
-
-                    if (!outputFilePath.isAbsolute()) {
-                        outputFilePath = Path.of(
-                                CurrentPath.INSTANCE.getPath().toString(),
-                                argsList.getLast());
-                    }
-
-                    if (!Files.exists(outputFilePath)) {
-                        Files.createFile(outputFilePath);
-                    }
-
-                    outErr = new FileOutputStream(outputFilePath.toFile());
-
-                    execArgs = Arrays.copyOfRange(arguments, 1, arguments.length - 2);
-                }
-            }
-
-            if (command.isEmpty()) {
-                System.err.printf("%s: command not found%n", arguments[0]);
-            } else if (command.get() instanceof Exit) {
-                run = false;
+                i++;
             } else {
-                CommandOutput output = command.get().execute(execArgs);
-
-                try (InputStream std = output.standard()) {
-                    std.transferTo(outStd);
-                } finally {
-                    if (!outStd.equals(System.out)) {
-                        outStd.close();
-                    }
-                }
-
-                try (InputStream err = output.error()) {
-                    err.transferTo(outErr);
-                } finally {
-                    if (!outErr.equals(System.err)) {
-                        outErr.close();
-                    }
-                }
+                i++;
             }
         }
+
+        // Determine which tokens are actually the command and arguments
+        // We remove any tokens that were used for redirection
+        List<String> cmdTokens = new ArrayList<>(Arrays.asList(tokens));
+        // This is a simple way to clean the command list for the handle method
+        // in a real shell, we'd do this more precisely
+
+        var output = handle(tokens); // Simplified for this version
+
+        BiConsumer<Optional<Redirect>, String> lambda = (o, str) -> o.ifPresentOrElse(
+                r -> {
+                    try {
+                        var path = Paths.get(r.path());
+                        if (path.getParent() != null)
+                            Files.createDirectories(path.getParent());
+
+                        // Use OpenOptions to handle Append vs Overwrite
+                        if (r.append()) {
+                            Files.writeString(path, str,
+                                    StandardCharsets.UTF_8,
+                                    StandardOpenOption.CREATE,
+                                    StandardOpenOption.APPEND);
+                        } else {
+                            Files.writeString(path, str,
+                                    StandardCharsets.UTF_8,
+                                    StandardOpenOption.CREATE,
+                                    StandardOpenOption.TRUNCATE_EXISTING);
+                        }
+                    } catch (IOException e) {
+                        e.printStackTrace(System.out);
+                    }
+                },
+                () -> System.out.append(str));
+
+        lambda.accept(stdout, output.std());
+        lambda.accept(stderr, output.err());
     }
+}
+
+Output handle(String[] tokens) {
+    try (var outStream = new ByteArrayOutputStream();
+            var errStream = new ByteArrayOutputStream();
+            var out = new PrintStream(outStream);
+            var err = new PrintStream(errStream)) {
+
+        // Clean tokens to remove redirection symbols before processing the command
+        List<String> cleanTokens = new ArrayList<>();
+        for (int i = 0; i < tokens.length; i++) {
+            if (tokens[i].equals(">") || tokens[i].equals("1>") || tokens[i].equals(">>") ||
+                    tokens[i].equals("1>>") || tokens[i].equals("2>")) {
+                i++; // skip the filename too
+                continue;
+            }
+            cleanTokens.add(tokens[i]);
+        }
+        String[] args = cleanTokens.toArray(new String[0]);
+        if (args.length == 0)
+            return new Output("", "");
+
+        switch (args[0]) {
+            case "exit" -> System.exit(0);
+            case "echo" -> {
+                if (args.length != 1) {
+                    for (int i = 1; i < args.length; i++) {
+                        out.print(args[i] + (i == args.length - 1 ? "" : " "));
+                    }
+                    out.println();
+                }
+            }
+            case "pwd" -> out.println(System.getProperty("user.dir"));
+            case "cd" -> {
+                if (args.length == 1)
+                    err.println("cd: missing operand");
+                else if (args.length > 2)
+                    err.println("cd: too many arguments");
+                else if (args[1].equals("~"))
+                    System.setProperty("user.dir", System.getenv("HOME"));
+                else {
+                    var currentPath = Paths.get(System.getProperty("user.dir"));
+                    var newPath = currentPath.resolve(args[1]).normalize();
+
+                    if (Files.exists(newPath) && Files.isDirectory(newPath))
+                        System.setProperty("user.dir", newPath.toAbsolutePath().toString());
+                    else
+                        err.printf("cd: %s: No such file or directory%n", args[1]);
+                }
+            }
+            case "type" -> {
+                if (args.length == 1)
+                    err.println("type: missing operand");
+                else if (args.length > 2)
+                    err.println("type: too many arguments");
+                else if (BUILTINS.contains(args[1]))
+                    out.println(args[1] + " is a shell builtin");
+                else
+                    getFile(args[1]).ifPresentOrElse(
+                            f -> out.println(args[1] + " is " + f.getAbsolutePath()),
+                            () -> err.println(args[1] + ": not found"));
+            }
+            default -> getFile(args[0]).ifPresentOrElse(
+                    _ -> runProgram(args, out, err),
+                    () -> err.println(args[0] + ": command not found"));
+        }
+        out.flush();
+        err.flush();
+        return new Output(outStream.toString(), errStream.toString());
+    } catch (IOException e) {
+        e.printStackTrace(System.err);
+        return new Output("", "");
+    }
+}
+
+Optional<File> getFile(String token) {
+    final String PATH = System.getenv("PATH");
+    if (PATH == null)
+        return Optional.empty();
+    for (final String filePath : PATH.split(File.pathSeparator)) {
+        final var file = new File(filePath + File.separator + token);
+        if (file.exists() && file.canExecute())
+            return Optional.of(file);
+    }
+    return Optional.empty();
+}
+
+void runProgram(String[] tokens, PrintStream out, PrintStream err) {
+    try {
+        var process = Runtime.getRuntime().exec(tokens);
+        process.getInputStream().transferTo(out);
+        process.getErrorStream().transferTo(err);
+        process.waitFor();
+    } catch (IOException | InterruptedException e) {
+        err.println("An I/O error occurred: " + e.getMessage());
+    }
+}
+
+String[] tokenize(String s) {
+    var tokens = new ArrayList<String>();
+    var sb = new StringBuilder();
+    boolean inSingleQuote = false, inDoubleQuote = false;
+
+    int i = 0;
+    while (i < s.length()) {
+        final char c = s.charAt(i);
+        if (c == '\\' && i + 1 < s.length())
+            sb.append(inSingleQuote ? c : s.charAt(++i));
+        else if (c == '\'' && !inDoubleQuote)
+            inSingleQuote = !inSingleQuote;
+        else if (c == '"' && !inSingleQuote) {
+            if (inDoubleQuote && i + 1 < s.length() && s.charAt(i + 1) == '"') {
+                i++;
+                continue;
+            }
+            inDoubleQuote = !inDoubleQuote;
+        } else if (!inSingleQuote && !inDoubleQuote && Character.isWhitespace(c)) {
+            if (!sb.isEmpty()) {
+                tokens.add(sb.toString());
+                sb.setLength(0);
+            }
+        } else {
+            sb.append(c);
+        }
+        i++;
+    }
+    if (!sb.isEmpty())
+        tokens.add(sb.toString());
+    return tokens.toArray(String[]::new);
+}
+
+record Output(String std, String err) {
 }

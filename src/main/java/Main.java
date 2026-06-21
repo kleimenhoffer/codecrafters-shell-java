@@ -20,14 +20,14 @@ public class Main {
         }
     }
 
-    // --- NEW: Helper method for Reaping Jobs ---
+    // --- REAPING LOGIC: This handles the "Done" messages ---
     private static void reapJobs(ArrayList<Job> jobsList) {
         ArrayList<Job> toRemove = new ArrayList<>();
 
         for (int i = 0; i < jobsList.size(); i++) {
             Job job = jobsList.get(i);
             if (!job.process.isAlive()) {
-                // Calculate marker based on current position in the list
+                // Calculate marker based on the job's current position in the list
                 char marker = ' ';
                 if (i == jobsList.size() - 1) {
                     marker = '+';
@@ -35,14 +35,14 @@ public class Main {
                     marker = '-';
                 }
 
-                // The instructions require "Done" padded to 24 chars
-                // Format: [1]+ Done sleep 5
+                // Format must be exactly: [id]marker Done (padded to 24) command
                 System.out.printf("[%d]%c  %-24s %s%n",
                         job.number, marker, "Done", job.command);
 
                 toRemove.add(job);
             }
         }
+        // Remove completed jobs so they aren't reported again
         jobsList.removeAll(toRemove);
     }
 
@@ -113,7 +113,7 @@ public class Main {
         ArrayList<Job> jobsList = new ArrayList<>();
 
         while (true) {
-            // --- IMPORTANT: Reap jobs BEFORE printing the prompt ---
+            // --- RULE 1: Reap jobs BEFORE printing the prompt ---
             reapJobs(jobsList);
 
             System.out.print("$ ");
@@ -171,7 +171,6 @@ public class Main {
             if (parts.isEmpty())
                 continue;
 
-            // Create files for redirection if needed
             if (stdoutTarget != null) {
                 Path outPath = currentDirectory.resolve(stdoutTarget).normalize();
                 if (outPath.getParent() != null && !Files.exists(outPath.getParent())) {
@@ -226,7 +225,7 @@ public class Main {
                 }
                 printOutput(sb.toString(), stdoutTarget, appendStdout, currentDirectory);
             } else if (cmd.equals("jobs")) {
-                // --- UPDATED: Call reapJobs first, then print ---
+                // --- RULE 2: Reap jobs INSIDE the jobs builtin as well ---
                 reapJobs(jobsList);
 
                 StringBuilder sb = new StringBuilder();

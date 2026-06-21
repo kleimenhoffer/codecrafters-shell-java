@@ -71,7 +71,6 @@ public class Main {
                 if (inputs.get(i).equals(">") || inputs.get(i).equals("1>")) {
                     redirectIndex = i;
                     if (i + 1 < inputs.size()) {
-
                         outputFile = new File(cwd, inputs.get(i + 1));
                     }
                     break;
@@ -79,7 +78,6 @@ public class Main {
             }
 
             if (redirectIndex != -1) {
-
                 if (redirectIndex + 1 < inputs.size()) {
                     inputs.remove(redirectIndex + 1);
                 }
@@ -91,7 +89,7 @@ public class Main {
             String command = inputs.get(0);
 
             if (command.equals("pwd")) {
-                executeBuiltin(() -> System.out.println(cwd.getAbsolutePath()), outputFile);
+                printWithRedirection(cwd.getAbsolutePath(), outputFile);
             } else if (command.equals("cd")) {
                 if (inputs.size() >= 2) {
                     String dir = inputs.get(1);
@@ -108,13 +106,13 @@ public class Main {
                     String cmd = inputs.get(1);
                     if (cmd.equals("echo") || cmd.equals("exit") || cmd.equals("type") || cmd.equals("pwd")
                             || cmd.equals("cd")) {
-                        executeBuiltin(() -> System.out.println(cmd + " is a shell builtin"), outputFile);
+                        printWithRedirection(cmd + " is a shell builtin", outputFile);
                     } else {
                         String path = findInPath(cmd);
                         if (path != null)
-                            executeBuiltin(() -> System.out.println(cmd + " is " + path), outputFile);
+                            printWithRedirection(cmd + " is " + path, outputFile);
                         else
-                            executeBuiltin(() -> System.out.println(cmd + ": not found"), outputFile);
+                            printWithRedirection(cmd + ": not found", outputFile);
                     }
                 }
             } else if (command.equals("echo")) {
@@ -124,8 +122,7 @@ public class Main {
                     if (i < inputs.size() - 1)
                         sb.append(" ");
                 }
-                String finalMsg = sb.toString();
-                executeBuiltin(() -> System.out.println(finalMsg), outputFile);
+                printWithRedirection(sb.toString(), outputFile);
             } else if (command.equals("exit")) {
                 int code = (inputs.size() < 2) ? 0 : Integer.parseInt(inputs.get(1));
                 System.exit(code);
@@ -138,7 +135,6 @@ public class Main {
                     } else {
                         pb.inheritIO();
                     }
-
                     Process p = pb.start();
                     p.waitFor();
                 } else {
@@ -148,22 +144,15 @@ public class Main {
         }
     }
 
-    private static void executeBuiltin(Runnable action, File outputFile) {
+    private static void printWithRedirection(String text, File outputFile) {
         if (outputFile == null) {
-            action.run();
+            System.out.println(text);
         } else {
             try {
 
-                PrintStream originalOut = System.out;
-
                 PrintStream fileOut = new PrintStream(new FileOutputStream(outputFile));
-                System.setOut(fileOut);
-
-                action.run();
-
+                fileOut.println(text);
                 fileOut.close();
-
-                System.setOut(originalOut);
             } catch (IOException e) {
                 System.err.println("Error writing to file: " + e.getMessage());
             }

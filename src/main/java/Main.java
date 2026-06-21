@@ -1,7 +1,6 @@
-import java.io.File;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Scanner;
+import java.io.*;
+import java.util.*;
+import java.nio.file.*;
 
 public class Main {
     static String findInPath(String cmd) {
@@ -25,24 +24,20 @@ public class Main {
 
         for (char c : input.toCharArray()) {
             if (isEscaped) {
-
                 currentArg.append(c);
                 isEscaped = false;
             } else if (c == '\\' && !insideSingleQuote) {
-
                 isEscaped = true;
             } else if (c == '\'') {
-                if (!insideDoubleQuote) {
+                if (!insideDoubleQuote)
                     insideSingleQuote = !insideSingleQuote;
-                } else {
+                else
                     currentArg.append(c);
-                }
             } else if (c == '\"') {
-                if (!insideSingleQuote) {
+                if (!insideSingleQuote)
                     insideDoubleQuote = !insideDoubleQuote;
-                } else {
+                else
                     currentArg.append(c);
-                }
             } else if (c == ' ' && !insideSingleQuote && !insideDoubleQuote) {
                 if (currentArg.length() > 0) {
                     args.add(currentArg.toString());
@@ -52,10 +47,8 @@ public class Main {
                 currentArg.append(c);
             }
         }
-
-        if (currentArg.length() > 0) {
+        if (currentArg.length() > 0)
             args.add(currentArg.toString());
-        }
         return args;
     }
 
@@ -70,14 +63,37 @@ public class Main {
                 continue;
 
             List<String> inputs = parseInput(rawInput);
+
+            File outputFile = null;
+            int redirectIndex = -1;
+
+            for (int i = 0; i < inputs.size(); i++) {
+                if (inputs.get(i).equals(">") || inputs.get(i).equals("1>")) {
+                    redirectIndex = i;
+                    if (i + 1 < inputs.size()) {
+
+                        outputFile = new File(cwd, inputs.get(i + 1));
+                    }
+                    break;
+                }
+            }
+
+            if (redirectIndex != -1) {
+
+                if (redirectIndex + 1 < inputs.size()) {
+                    inputs.remove(redirectIndex + 1);
+                }
+                inputs.remove(redirectIndex);
+            }
+
+            if (inputs.isEmpty())
+                continue;
             String command = inputs.get(0);
 
             if (command.equals("pwd")) {
-                System.out.println(cwd.getAbsolutePath());
+                executeBuiltin(() -> System.out.println(cwd.getAbsolutePath()), outputFile);
             } else if (command.equals("cd")) {
-                if (inputs.size() < 2) {
-
-                } else {
+                if (inputs.size() >= 2) {
                     String dir = inputs.get(1);
                     if (dir.equals("~"))
                         dir = System.getenv("HOME");
@@ -88,19 +104,17 @@ public class Main {
                         System.out.println("cd: " + dir + ": No such file or directory");
                 }
             } else if (command.equals("type")) {
-                if (inputs.size() < 2) {
-
-                } else {
+                if (inputs.size() >= 2) {
                     String cmd = inputs.get(1);
                     if (cmd.equals("echo") || cmd.equals("exit") || cmd.equals("type") || cmd.equals("pwd")
                             || cmd.equals("cd")) {
-                        System.out.println(cmd + " is a shell builtin");
+                        executeBuiltin(() -> System.out.println(cmd + " is a shell builtin"), outputFile);
                     } else {
                         String path = findInPath(cmd);
                         if (path != null)
-                            System.out.println(cmd + " is " + path);
+                            executeBuiltin(() -> System.out.println(cmd + " is " + path), outputFile);
                         else
-                            System.out.println(cmd + ": not found");
+                            executeBuiltin(() -> System.out.println(cmd + ": not found"), outputFile);
                     }
                 }
             } else if (command.equals("echo")) {
@@ -110,18 +124,48 @@ public class Main {
                     if (i < inputs.size() - 1)
                         sb.append(" ");
                 }
-                System.out.println(sb.toString());
+                String finalMsg = sb.toString();
+                executeBuiltin(() -> System.out.println(finalMsg), outputFile);
             } else if (command.equals("exit")) {
                 int code = (inputs.size() < 2) ? 0 : Integer.parseInt(inputs.get(1));
                 System.exit(code);
             } else {
                 String execPath = findInPath(command);
                 if (execPath != null) {
-                    Process p = new ProcessBuilder(inputs).inheritIO().start();
+                    ProcessBuilder pb = new ProcessBuilder(inputs);
+                    if (outputFile != null) {
+                        pb.redirectOutput(outputFile);
+                    } else {
+                        pb.inheritIO();
+                    }
+
+                    Process p = pb.start();
                     p.waitFor();
                 } else {
                     System.out.println(command + ": command not found");
                 }
+            }
+        }
+    }
+
+    private static void executeBuiltin(Runnable action, File outputFile) {
+        if (outputFile == null) {
+            action.run();
+        } else {
+            try {
+
+                PrintStream originalOut = System.out;
+
+                PrintStream fileOut = new PrintStream(new FileOutputStream(outputFile));
+                System.setOut(fileOut);
+
+                action.run();
+
+                fileOut.close();
+
+                System.setOut(originalOut);
+            } catch (IOException e) {
+                System.err.println("Error writing to file: " + e.getMessage());
             }
         }
     }

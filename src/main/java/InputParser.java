@@ -1,119 +1,215 @@
-package io.codecrafters.terminal.parser;
-
-import static io.codecrafters.terminal.parser.Redirect.Mode.APPEND;
-import static io.codecrafters.terminal.parser.Redirect.Mode.OVERWRITE;
-import static io.codecrafters.terminal.parser.Redirect.Stream.STDERR;
-import static io.codecrafters.terminal.parser.Redirect.Stream.STDOUT;
-
-import java.nio.file.Path;
-import java.nio.file.Paths;
+import static java.lang.IO.readln;
+import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.*;
 import java.util.*;
+import java.util.function.BiConsumer;
 
-public class InputParser {
+// This record remembers the file path and if we should append (true) or overwrite (false)
+record Redirect(String path, boolean append) {
+}
 
-    private enum State {
-        INSIDE_SINGLE_QUOTES,
-        INSIDE_DOUBLE_QUOTES,
-        BACKSLASH,
-        DOUBLE_QUOTES_BACKSLASH,
-        RAW
-    }
+Set<String> BUILTINS = Set.of("cd", "echo", "exit", "pwd", "type");
 
-    public ParsedInput parse(String input) {
-        if (input.isBlank()) {
-            return null;
-        }
+void main() {
+    while (true) {
+        final String input = readln("$ ");
+        if (input == null)
+            break;
+        final String[] tokens = tokenize(input);
+        if (tokens.length == 0)
+            continue;
 
-        List<String> tokens = new ArrayList<>();
+        var stdout = Optional.<Redirect>empty();
+        var stderr = Optional.<Redirect>empty();
 
-        StringBuilder current = new StringBuilder();
-        State currenState = State.RAW;
-        for (int i = 0; i < input.length(); i++) {
-            char c = input.charAt(i);
-
-            switch (currenState) {
-                case RAW -> {
-                    if (c == '\'') {
-                        currenState = State.INSIDE_SINGLE_QUOTES;
-                    } else if (c == '\"') {
-                        currenState = State.INSIDE_DOUBLE_QUOTES;
-                    } else if (c == '\\') {
-                        currenState = State.BACKSLASH;
-                    } else if (c != ' ') {
-                        current.append(c);
-                    } else if (!current.isEmpty()) {
-                        tokens.add(current.toString());
-                        current.setLength(0);
-                    }
+        int i = 1;
+        // Scan for redirection operators
+        while (i < tokens.length) {
+            if (tokens[i].equals("1>") || tokens[i].equals(">")) {
+                if (i + 1 < tokens.length) {
+                    stdout = Optional.of(new Redirect(tokens[++i], false));
                 }
-                case INSIDE_SINGLE_QUOTES -> {
-                    if (c == '\'') {
-                        currenState = State.RAW;
-                    } else {
-                        current.append(c);
-                    }
+                i++;
+            } else if (tokens[i].equals("1>>") || tokens[i].equals(">>")) {
+                if (i + 1 < tokens.length) {
+                    stdout = Optional.of(new Redirect(tokens[++i], true));
                 }
-                case INSIDE_DOUBLE_QUOTES -> {
-                    switch (c) {
-                        case '\"' -> currenState = State.RAW;
-                        case '\\' -> currenState = State.DOUBLE_QUOTES_BACKSLASH;
-                        default -> current.append(c);
-                    }
+                i++;
+            } else if (tokens[i].equals("2>")) {
+                if (i + 1 < tokens.length) {
+                    stderr = Optional.of(new Redirect(tokens[++i], false));
                 }
-                case BACKSLASH -> {
-                    current.append(c);
-                    currenState = State.RAW;
+                i++;
+            } else if (tokens[i].equals("2>>")) { // --- NEW: Support for 2>> ---
+                if (i + 1 < tokens.length) {
+                    stderr = Optional.of(new Redirect(tokens[++i], true));
                 }
-                case DOUBLE_QUOTES_BACKSLASH -> {
-                    Set<Character> specialChars = Set.of('"', '\\');
-                    if (specialChars.contains(c)) {
-                        current.append(c);
-                    } else {
-                        current.append("\\").append(c);
-                    }
-                    currenState = State.INSIDE_DOUBLE_QUOTES;
-                }
+                i++;
+            } else {
+                i++;
             }
         }
 
-        if (!current.isEmpty()) {
-            tokens.add(current.toString());
-        }
+        var output = handle(tokens);
 
-        return buildParsedInput(tokens);
+        BiConsumer<Optional<Redirect>, String> lambda = (o, str) -> o.ifPresentOrElse(
+                r -> {
+                    try {
+                        var path = Paths.get(r.path());
+                        if (path.getParent() != null)
+                            Files.createDirectories(path.getParent());
+
+                        if (r.append()) {
+                            Files.writeString(path, str,
+                                    StandardCharsets.UTF_8,
+                                    StandardOpenOption.CREATE,
+                                    StandardOpenOption.APPEND);
+                        } else {
+                            Files.writeString(path, str,
+                                    StandardCharsets.UTF_8,
+                                    StandardOpenOption.CREATE,
+                                    StandardOpenOption.TRUNCATE_EXISTING);
+                        }
+                    } catch (IOException e) {
+                        e.printStackTrace(System.out);
+                    }
+                },
+                () -> System.out.append(str));
+
+        lambda.accept(stdout, output.std());
+        lambda.accept(stderr, output.err());
     }
+}
 
-    private ParsedInput buildParsedInput(List<String> tokens) {
-        String command = tokens.getFirst();
-        List<String> arguments = new ArrayList<>();
-        List<Redirect> redirects = new ArrayList<>();
+Output handle(String[] tokens) {
+    try (var outStream = new ByteArrayOutputStream();
+            var errStream = new ByteArrayOutputStream();
+            var out = new PrintStream(outStream);
+            var err = new PrintStream(errStream)) {
 
-        for (int i = 1; i < tokens.size(); i++) {
-            String token = tokens.get(i);
-            switch (token) {
-                case ">", "1>" ->
-                    redirects.add(
-                            new Redirect(STDOUT, consumeTarget(tokens, ++i, token), OVERWRITE));
-                case ">>", "1>>" ->
-                    redirects.add(
-                            new Redirect(STDOUT, consumeTarget(tokens, ++i, token), APPEND));
-                case "2>" ->
-                    redirects.add(
-                            new Redirect(STDERR, consumeTarget(tokens, ++i, token), OVERWRITE));
-                case "2>>" ->
-                    redirects.add(
-                            new Redirect(STDERR, consumeTarget(tokens, ++i, token), APPEND));
-                default -> arguments.add(token);
+        // Clean tokens: remove all redirection symbols and their associated files
+        List<String> cleanTokens = new ArrayList<>();
+        for (int i = 0; i < tokens.length; i++) {
+            if (tokens[i].equals(">") || tokens[i].equals("1>") || tokens[i].equals(">>") ||
+                    tokens[i].equals("1>>") || tokens[i].equals("2>") || tokens[i].equals("2>>")) {
+                i++; // skip the filename
+                continue;
             }
+            cleanTokens.add(tokens[i]);
         }
+        String[] args = cleanTokens.toArray(new String[0]);
+        if (args.length == 0)
+            return new Output("", "");
 
-        return new ParsedInput(command, arguments, redirects);
-    }
+        switch (args[0]) {
+            case "exit" -> System.exit(0);
+            case "echo" -> {
+                if (args.length != 1) {
+                    for (int i = 1; i < args.length; i++) {
+                        out.print(args[i] + (i == args.length - 1 ? "" : " "));
+                    }
+                    out.println();
+                }
+            }
+            case "pwd" -> out.println(System.getProperty("user.dir"));
+            case "cd" -> {
+                if (args.length == 1)
+                    err.println("cd: missing operand");
+                else if (args.length > 2)
+                    err.println("cd: too many arguments");
+                else if (args[1].equals("~"))
+                    System.setProperty("user.dir", System.getenv("HOME"));
+                else {
+                    var currentPath = Paths.get(System.getProperty("user.dir"));
+                    var newPath = currentPath.resolve(args[1]).normalize();
 
-    private Path consumeTarget(List<String> tokens, int index, String operator) {
-        if (index >= tokens.size()) {
-            throw new IllegalArgumentException("Expected filename after '" + operator + "'");
+                    if (Files.exists(newPath) && Files.isDirectory(newPath))
+                        System.setProperty("user.dir", newPath.toAbsolutePath().toString());
+                    else
+                        err.printf("cd: %s: No such file or directory%n", args[1]);
+                }
+            }
+            case "type" -> {
+                if (args.length == 1)
+                    err.println("type: missing operand");
+                else if (args.length > 2)
+                    err.println("type: too many arguments");
+                else if (BUILTINS.contains(args[1]))
+                    out.println(args[1] + " is a shell builtin");
+                else
+                    getFile(args[1]).ifPresentOrElse(
+                            f -> out.println(args[1] + " is " + f.getAbsolutePath()),
+                            () -> err.println(args[1] + ": not found"));
+            }
+            default -> getFile(args[0]).ifPresentOrElse(
+                    _ -> runProgram(args, out, err),
+                    () -> err.println(args[0] + ": command not found"));
         }
-        return Paths.get(tokens.get(index));
+        out.flush();
+        err.flush();
+        return new Output(outStream.toString(), errStream.toString());
+    } catch (IOException e) {
+        e.printStackTrace(System.err);
+        return new Output("", "");
     }
+}
+
+Optional<File> getFile(String token) {
+    final String PATH = System.getenv("PATH");
+    if (PATH == null)
+        return Optional.empty();
+    for (final String filePath : PATH.split(File.pathSeparator)) {
+        final var file = new File(filePath + File.separator + token);
+        if (file.exists() && file.canExecute())
+            return Optional.of(file);
+    }
+    return Optional.empty();
+}
+
+void runProgram(String[] tokens, PrintStream out, PrintStream err) {
+    try {
+        var process = Runtime.getRuntime().exec(tokens);
+        process.getInputStream().transferTo(out);
+        process.getErrorStream().transferTo(err);
+        process.waitFor();
+    } catch (IOException | InterruptedException e) {
+        err.println("An I/O error occurred: " + e.getMessage());
+    }
+}
+
+String[] tokenize(String s) {
+    var tokens = new ArrayList<String>();
+    var sb = new StringBuilder();
+    boolean inSingleQuote = false, inDoubleQuote = false;
+
+    int i = 0;
+    while (i < s.length()) {
+        final char c = s.charAt(i);
+        if (c == '\\' && i + 1 < s.length())
+            sb.append(inSingleQuote ? c : s.charAt(++i));
+        else if (c == '\'' && !inDoubleQuote)
+            inSingleQuote = !inSingleQuote;
+        else if (c == '"' && !inSingleQuote) {
+            if (inDoubleQuote && i + 1 < s.length() && s.charAt(i + 1) == '"') {
+                i++;
+                continue;
+            }
+            inDoubleQuote = !inDoubleQuote;
+        } else if (!inSingleQuote && !inDoubleQuote && Character.isWhitespace(c)) {
+            if (!sb.isEmpty()) {
+                tokens.add(sb.toString());
+                sb.setLength(0);
+            }
+        } else {
+            sb.append(c);
+        }
+        i++;
+    }
+    if (!sb.isEmpty())
+        tokens.add(sb.toString());
+    return tokens.toArray(String[]::new);
+}
+
+record Output(String std, String err) {
 }

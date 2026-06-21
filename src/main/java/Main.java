@@ -20,11 +20,25 @@ public class Main {
         List<String> args = new ArrayList<>();
         StringBuilder currentArg = new StringBuilder();
         boolean insideSingleQuote = false;
+        boolean insideDoubleQuote = false;
 
         for (char c : input.toCharArray()) {
             if (c == '\'') {
-                insideSingleQuote = !insideSingleQuote;
-            } else if (c == ' ' && !insideSingleQuote) {
+
+                if (!insideDoubleQuote) {
+                    insideSingleQuote = !insideSingleQuote;
+                } else {
+                    currentArg.append(c);
+                }
+            } else if (c == '\"') {
+
+                if (!insideSingleQuote) {
+                    insideDoubleQuote = !insideDoubleQuote;
+                } else {
+                    currentArg.append(c);
+                }
+            } else if (c == ' ' && !insideSingleQuote && !insideDoubleQuote) {
+
                 if (currentArg.length() > 0) {
                     args.add(currentArg.toString());
                     currentArg = new StringBuilder();
@@ -85,7 +99,6 @@ public class Main {
                     }
                 }
             } else if (command.equals("echo")) {
-
                 StringBuilder sb = new StringBuilder();
                 for (int i = 1; i < inputs.size(); i++) {
                     sb.append(inputs.get(i));
@@ -97,10 +110,8 @@ public class Main {
                 int code = (inputs.size() < 2) ? 0 : Integer.parseInt(inputs.get(1));
                 System.exit(code);
             } else {
-
                 String execPath = findInPath(command);
                 if (execPath != null) {
-
                     Process p = new ProcessBuilder(inputs).inheritIO().start();
                     p.waitFor();
                 } else {

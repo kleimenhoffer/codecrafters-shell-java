@@ -33,8 +33,15 @@ public class Main {
                     marker = '-';
                 }
 
+                // --- FIX: Remove the trailing '&' for "Done" messages ---
+                String displayCmd = job.command;
+                if (displayCmd.endsWith("&")) {
+                    displayCmd = displayCmd.substring(0, displayCmd.length() - 1).trim();
+                }
+
+                // Format: [id]marker Done (padded to 24) cleaned_command
                 System.out.printf("[%d]%c  %-24s %s%n",
-                        job.number, marker, "Done", job.command);
+                        job.number, marker, "Done", displayCmd);
 
                 toRemove.add(job);
             }
@@ -268,27 +275,14 @@ public class Main {
                         ProcessBuilder pb = new ProcessBuilder(parts);
                         pb.directory(currentDirectory.toFile());
                         pb.inheritIO();
-
-                        // --- FIXED REDIRECTION LOGIC ---
                         if (stdoutTarget != null) {
                             File outFile = currentDirectory.resolve(stdoutTarget).normalize().toFile();
-                            if (appendStdout) {
-                                pb.redirectOutput(ProcessBuilder.Redirect.appendTo(outFile));
-                            } else {
-                                pb.redirectOutput(outFile);
-                            }
+                            pb.redirectOutput(appendStdout ? ProcessBuilder.Redirect.appendTo(outFile) : outFile);
                         }
-
                         if (stderrTarget != null) {
                             File errFile = currentDirectory.resolve(stderrTarget).normalize().toFile();
-                            if (appendStderr) {
-                                pb.redirectError(ProcessBuilder.Redirect.appendTo(errFile));
-                            } else {
-                                pb.redirectError(errFile);
-                            }
+                            pb.redirectError(appendStderr ? ProcessBuilder.Redirect.appendTo(errFile) : errFile);
                         }
-                        // --- END OF FIX ---
-
                         Process p = pb.start();
                         if (runInBackground) {
                             System.out.println("[" + jobNumber + "] " + p.pid());
